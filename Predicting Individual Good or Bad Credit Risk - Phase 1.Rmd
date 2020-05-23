@@ -1,0 +1,532 @@
+---
+title: "Predicting Individual Good or Bad Credit Risk"
+subtitle: 'Machine Learning - Applied Project - Phase I'
+author: "Saurabh Mallik (s3623575) & Dilip Chandra (s3574580)"
+linkcolor: blue
+output: html_document
+---
+---
+
+<h3> Introduction </h3>
+“It takes money to make more money”. As an individual or company when we want to lend money, we set some critical parameters or guidelines to understand the credit risk. In this project, our aim is to analyze good and bad credit risk associated with individuals. The purpose of this stage of the project is to build classifiers which will help in predicting whether or not an individual has good or bad credit risk. This will be based on German Credit Dataset, which was sourced from [UCI Machine Learning Repository](https://archive.ics.uci.edu/ml/datasets/statlog+(german+credit+data)). The project is segregated into two distinct stages. Stage 1 focusses on creating classifiers which will help the machine learning process to provide prediction. This stage will be comprise of data preprocessing, exploration and visualisation. In stage 2, we will focus on model building. The report is divided into the following parts:</br>
+1. Dataset: Which talks about the data</br>
+2. Pre-Processing: Which takes one through the required steps to clean and tidy the data for exploration.</br>
+3. Exploration: Where we show the dependencies and key features of the data</br>
+4. Summary: Where we summarise the report and findings.</br>
+
+
+<h3> Dataset </h3>
+The German Credit Dataset sourced from [UCI Machine Learning Repository](https://archive.ics.uci.edu/ml/datasets/statlog+(german+credit+data)) provides us with two datasets. For this research we will be using the original dataset in categorical form provided by Prof. Hofman. The dataset has 1000 observations and 21 variables. The dataset consists of 20 descriptive feature and 1 target feature. The dataset will be used in stage 2 to build classifiers and evaluate the execution and fitting of the models using cross-validation.
+</br></br>
+<h4> Target Feature </h4>
+The response feature for this project is CreditRisk which has two classes good or bad, and is hence a binary classification problem. The goal of this project is to predict whether an individual had good credit or bad credit risk.
+</br></br>
+<h4> Descriptive Features </h4>
+The variable descriptions for the dataset are given below:</br>
+1. Checking: <0, 0<X<200, >=200, no checking.</br>
+2. Duration: continuous.</br>
+3. CreditHistory: all paid, eisting paid, delayed previously, critical/other existing credit, no credits/all paid.</br>
+4. Purpose: business, domestic appliance, education furniture/equipment, new car, other, radio/tv, repairs, retraining, used car. </br>
+5. CreditAmount: continuous.</br>
+6. Saving: <100, >=1000, 100<=X<500, 500<=X<1000, no known savings. </br>
+7. Employment: <1, >=7, 1<=X<4, 4<=X<7, unemployed.</br>
+8. Installment: continuous.</br>
+9. Status: male div/sep, male mar/wid, male single, female div/dep/mar. </br>
+10. OtherParties: co applicant, guarantor, none.</br>
+11. Residence: continuous.</br>
+12. Asset: life insurance, no known property, real estate, car. </br>
+13. Age: continuous.</br>
+14. OtherPlans: bank, none, stores.</br>
+15. Housing: for free, own, rent.</br>
+16. ExistingCredits: continuous.</br>
+17. JobType: high qualif/self emp/mgmt, unemp/unskilled non res, unskilled resident, skilled.</br>
+18. Dependants: continuous.</br>
+19. Phone: none, yes.</br>
+20. Foreign: no, yes.</br>
+
+The descriptors are quite self explanatory and hence comprehension for exploration was suitable.
+</br></br>
+<h3> Data Pre-processing </h3>
+</br>
+<h4> Preliminaries </h4>
+The following R packages were used for this stage of the project. 
+```{r, message=FALSE, warning=FALSE, include=TRUE}
+library(readr)
+library(ggplot2)
+library(dplyr)
+library(mlr)
+library(tidyverse)
+library(GGally)
+library(cowplot)
+```
+
+We read the dataset and renamed the variables for convenience and ease of usage as there were 20 distinct variables in the dataset. We eventually convert the character variables to factors (categorical data).
+```{r}
+credit <- read_csv("credit.csv")
+names(credit) <- c('Checking', 'Duration', 'CreditHistory', 'Purpose', 'CreditAmount',
+                    'Saving', 'Employment', 'Installment', 'Status', 'OtherParties', 'Residence',
+                    'Asset', 'Age', 'OtherPlans', 'Housing', 'ExistingCredits', 'JobType', 'Dependants', 
+                   'Phone', 'Foreign', 'CreditRisk')
+```
+</br>
+<h4> Tidying the dataset </h4>
+We use the str and summarizeColumns functions to understand the dataset a bit further. From these we noticed the following:</br>
+1. All the character variables had a lot of white space.</br>
+2. There were no missing values in the dataset.
+
+
+```{r}
+str(credit, give.attr = FALSE)
+```
+
+
+```{r}
+summarizeColumns(credit) %>% knitr::kable( caption = 'Table 1. Feature Summary before Data Preprocessing')
+```
+
+
+We next need to get rid of the excessive white space for all character variables.
+
+```{r}
+credit[, sapply(credit, is.character )] <- sapply( credit[, sapply(credit, is.character )], trimws)
+```
+
+We next check the levels for each character feature and the following points stood out a lot.</br>
+1. There were no visible missing values.</br>
+2. There were only 37 non foreign working individuals.</br>
+3. For Purpose we merged domestic appliance, furnture/equipment, repairs, radio/tv and retraining as household and new car and used car as Cars.</br>
+4. For Status, we saw that there was only 1 class for females so we renamed it female, and we merged the 3 classes of males to Male.</br>
+5. There were 200 unskilled individuals.</br>
+6. Only 49 people (4.9%) had all paid dues.</br>
+7. The maximum number of loans were for Radio/TV or for a new car.</br>
+8. Almost 60% of the individuals did not have a phone.</br>
+
+```{r}
+sapply( credit[ sapply(credit, is.character)], table)
+```
+
+We kept the priginal features intact to ensure data does not get affected and created new descriptive features from them. Each of the newly created feature had its name end with 1 to distinct itself from the original.
+```{r}
+credit <- credit %>% 
+         mutate(Purpose1 = ifelse( Purpose %in% c('domestic appliance', 'furniture/equipment', 'radio/tv', 'repairs',                                     'retraining'), 'Household', 
+                                   ifelse( Purpose %in% c('new car', 'used car'), 'Cars',
+                                           ifelse( grepl('business', Purpose), 'Business',
+                                                   ifelse( grepl('education', Purpose), 'Education',
+                                                           ifelse( grepl('other', Purpose), 'Other', Purpose))))),
+                Status1 = ifelse( Status != 'female div/dep/mar', 'Male', 'Female')
+          )
+```
+
+We next changed all the character variables to factors.
+
+```{r}
+credit[, sapply( credit, is.character )] <- lapply( credit[, sapply( credit, is.character )], factor)
+```
+
+Table 2 represents the summary statistics of the data after preprocesseing.
+```{r}
+summarizeColumns(credit) %>% knitr::kable( caption = 'Table 2. Feature Summary after Data Preprocessing' )
+```
+
+
+<h3> Data Exploration </h3>
+The next step in this stage of the project was to explore the data. For this, we first explored all the variables individually, followed by some multi variate relationships.</br></br>
+<h4> Univariate Visualisation </h4>
+
+<h5> Numerical Features </h5>
+
+<b> Age </b>
+
+```{r}
+p1 <- ggplot(credit, aes(x = Age)) + geom_histogram(bins = 35) + labs(title = 'Histogram of Ages')
+p2 <- ggplot(credit, aes(x = Age, fill = CreditRisk)) + 
+  geom_histogram(bins = 35) + facet_grid(~CreditRisk) + 
+  labs(title = 'Histogram of Age by Credit Risk Classes')
+plot_grid(p1, p2, ncol = 1)
+```
+
+Most of individuals who would want to avail a credit facility are aged between 20 and 40. We see a normal distribution for credit risk. Individuals in this age would have commenced their carrier and hence would be able to take calculated risks. 
+
+
+<b> Duration (in months) </b>
+
+```{r}
+p3 <- ggplot(credit, aes(x = Duration)) + geom_histogram(bins = 20) +
+  labs(title = 'Histogram of Duration of Credit provided')
+
+p4 <- ggplot(credit, aes(x = Duration, fill = CreditRisk)) + 
+  geom_histogram(bins = 20) + facet_grid(~CreditRisk) + 
+  labs(title = 'Histogram of Duration by Credit Risk Classes')
+
+plot_grid(p3, p4, ncol = 1)
+```
+
+Duration here refers to the tenure or length of period an individual agrees to pay out the credit facility. Durations appears to be right skewed with ideal tenure in the range of 12 to 24 months. 
+
+<b> Credit Amount (in Deutsch Mark) </b>
+
+```{r}
+p5 <- ggplot(credit, aes(x = CreditAmount)) + geom_histogram(bins = 20) +
+  labs(title = 'Histogram of Credit Amount z provided')
+
+p6 <- ggplot(credit, aes(x = CreditAmount, fill = CreditRisk)) + 
+  geom_histogram(bins = 20) + facet_grid(~CreditRisk) + 
+  labs(title = 'Histogram of Credit Amount provided by Credit Risk Classes')
+
+plot_grid(p5, p6, ncol = 1)
+```
+
+Credit amount is in Deutsch Mark. On aggregated level, individuals took a loan amount of approximately 1000 to 2000 marks, as indicated by the sharp kurtosis in the histogram of credit amount.
+
+<b> Installment (Rate in % of disposable income) </b>
+
+```{r}
+p7 <- ggplot(credit, aes(x = Installment)) + geom_histogram(bins = 4) +
+  labs(title = 'Histogram of Installment rate in % of disposable Income')
+
+p8 <- ggplot(credit, aes(x = Installment, fill = CreditRisk)) + 
+  geom_histogram(bins = 4) + facet_grid(~CreditRisk) + 
+  labs(title = 'Histogram of Installment Rate by Credit Risk Classes')
+
+plot_grid(p7, p8, ncol = 1)
+```
+
+We are referring to the interest rate one would pay to avail the credit facility. Usually a lower instalment rate means, less interest payable. From the histogram, we can see that only good credit risk can avail a lower risk rate of 1-2 percent. Bad credit risk is right skewed as the majority instalment rate is aggregated to 4 percent.
+
+<b> Present Residence </b>
+
+```{r}
+p9 <- ggplot(credit, aes(x = Residence)) + geom_histogram(bins = 4) +
+  labs(title = 'Histogram of Present Residence in years')
+
+p10 <- ggplot(credit, aes(x = Residence, fill = CreditRisk)) + 
+  geom_histogram(bins = 4) + facet_grid(~CreditRisk) + 
+  labs(title = 'Histogram of Present Residence by Credit Risk Classes')
+
+plot_grid(p9, p10, ncol = 1)
+```
+
+Number of years an individual resides in the current address, determines their residential status and shows stability of individual movement. For credit risk a long stay in the current address determines a lower risk and better risk-taking ability. Hence the histogram is right skewed for good credit risk. 
+
+<b> Existing Credits </b>
+
+```{r}
+p11 <- ggplot(credit, aes(x = ExistingCredits)) + geom_histogram(bins = 4) +
+  labs(title = 'Histogram of number of Existing Credits in the bank')
+
+p12 <- ggplot(credit, aes(x = ExistingCredits, fill = CreditRisk)) + 
+  geom_histogram(bins = 4) + facet_grid(~CreditRisk) + 
+  labs(title = 'Histogram of Existing Credits by Credit Risk Classes')
+
+plot_grid(p11, p12, ncol = 1)
+```
+
+Number of existing credit facilities at a bank plays an important role in determining credit risk. Existing debt also means the capability to take more debt decreases. Hence, number of existing credit facilities limited to 1-2. Higher number of existing credit are more likely to be good credit risk. 
+
+<b> Number of Dependants </b>
+
+```{r}
+p13 <- ggplot(credit, aes(x = Dependants)) + geom_histogram(bins = 2) +
+  labs(title = 'Histogram of number of dependants of the individual')
+
+p14 <- ggplot(credit, aes(x = Dependants, fill = CreditRisk)) + 
+  geom_histogram(bins = 2) + facet_grid(~CreditRisk) + 
+  labs(title = 'Histogram of number of dependants by Credit Risk Classes')
+
+plot_grid(p13, p14, ncol = 1)
+```
+
+This factor establishes living cost of an individual. People with higher number dependents to have higher living cost when compared to no dependents. As the histogram is right skewed, it suggests that, individual with no dependents or less dependents are more likely to borrow more credit. 
+
+<h5> Categorical Features </h5>
+
+<b> Status of checking account in bank </b>
+
+```{r}
+p15 <- ggplot(credit, aes(x = Checking)) + geom_bar() + 
+  labs(title = 'Bar Chart of Status of checking account') + 
+  theme(axis.text.x = element_text(angle = 90, hjust = 1))
+
+p16 <- ggplot(credit, aes(x = Checking, fill = CreditRisk)) + 
+  geom_bar() + facet_grid(CreditRisk~.) +
+  labs(title = '') +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1))
+
+plot_grid(p15, p16, ncol = 2)
+```
+
+Number of people not having a checking account with the bank was considerably high. Individuals with checking account facility of less than 200 were more likely to avail credit facilities and Individuals with checking account facility of less than 0 were likely to be grouped in bad credit risk
+
+<b> Credit History </b>
+
+```{r}
+p17 <- ggplot(credit, aes(x = CreditHistory)) + geom_bar() + 
+  labs(title = 'Bar Chart of Credit History') + 
+  theme(axis.text.x = element_text(angle = 90, hjust = 1))
+
+p18 <- ggplot(credit, aes(x = CreditHistory, fill = CreditRisk)) + 
+  geom_bar() + facet_grid(CreditRisk~.) +
+  labs(title = '') +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1))
+
+plot_grid(p17, p18, ncol = 2)
+```
+
+When making lending decisions, lenders review your credit history to determine how likely an individual would repay your loan on time. A longer history shows you have more experience using credit and hence lenders can be more accurate in determining the level of risk they take on when lending to you.
+
+<b> Purpose </b>
+
+```{r}
+p19 <- ggplot(credit, aes(x = Purpose1)) + geom_bar() + 
+  labs(title = 'Bar Chart of Purpose of the loan') + 
+  theme(axis.text.x = element_text(angle = 90, hjust = 1))
+
+p20 <- ggplot(credit, aes(x = Purpose1, fill = CreditRisk)) + 
+  geom_bar() + facet_grid(CreditRisk~.) +
+  labs(title = '') +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1))
+
+plot_grid(p19, p20, ncol = 2)
+```
+
+Loan purpose has been divides into four categories. Majority of people usually take a credit facility to purchase a car or make house hold improvements.
+
+<b> Status of Savings Account </b>
+
+```{r}
+p21 <- ggplot(credit, aes(x = Saving)) + geom_bar() + 
+  labs(title = 'Bar Chart of Status of Savings Account') + 
+  theme(axis.text.x = element_text(angle = 90, hjust = 1))
+
+p22 <- ggplot(credit, aes(x = Saving, fill = CreditRisk)) + 
+  geom_bar() + facet_grid(CreditRisk~.) +
+  labs(title = '') +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1))
+
+plot_grid(p21, p22, ncol = 2)
+```
+
+Savings or cash held in once savings account are divided into four categories. Savings of less than 100 thousand marks are likely to borrow credit facility. Credit risk remains good when individual have more than 100 thousand marks in savings.
+
+<b> Employment </b>
+
+```{r}
+p23 <- ggplot(credit, aes(x = Employment)) + geom_bar() + 
+  labs(title = 'Bar Chart of Employment Tenure') + 
+  theme(axis.text.x = element_text(angle = 90, hjust = 1))
+
+p24 <- ggplot(credit, aes(x = Employment, fill = CreditRisk)) + 
+  geom_bar() + facet_grid(CreditRisk~.) +
+  labs(title = '') +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1))
+
+plot_grid(p23, p24, ncol = 2)
+```
+
+Segregating employment tenure by credit risk showed that good credit risk individuals were more likely to have higher employment tenure whereas bed credit risk individuals were mostly lower employment tenure.
+
+<b> Sex of Individual </b>
+
+```{r}
+p25 <- ggplot(credit, aes(x = Status1)) + geom_bar() + 
+  labs(title = 'Bar Chart of Sex of Individual', x = "Gender") + 
+  theme(axis.text.x = element_text(angle = 90, hjust = 1))
+
+p26 <- ggplot(credit, aes(x = Status1, fill = CreditRisk)) + 
+  geom_bar() + facet_grid(CreditRisk~.) +
+  labs(title = '', x = "Gender") +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1))
+
+plot_grid(p25, p26, ncol = 2)
+```
+
+Males dominated the overall credit risk taking ability. However, the bad credit risk was proportionality more for the females. 
+
+<b> Other Parties Involved </b>
+
+```{r}
+p27 <- ggplot(credit, aes(x = OtherParties)) + geom_bar() + 
+  labs(title = 'Bar Chart of Other Parties Involved') + 
+  theme(axis.text.x = element_text(angle = 90, hjust = 1))
+
+p28 <- ggplot(credit, aes(x = OtherParties, fill = CreditRisk)) + 
+  geom_bar() + facet_grid(CreditRisk~.) +
+  labs(title = '') +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1))
+
+plot_grid(p27, p28, ncol = 2)
+```
+
+In total three parties were involved – co applicant, guarantor and none. None stood out among the three, as it also included individuals who had applied for credit facility alone.
+
+<b> Asset Type </b>
+
+```{r}
+p29 <- ggplot(credit, aes(x = Asset)) + geom_bar() + 
+  labs(title = 'Bar Chart of Asset Type') + 
+  theme(axis.text.x = element_text(angle = 90, hjust = 1))
+
+p30 <- ggplot(credit, aes(x = Asset, fill = CreditRisk)) + 
+  geom_bar() + facet_grid(CreditRisk~.) +
+  labs(title = '') +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1))
+
+plot_grid(p29, p30, ncol = 2)
+```
+
+Individuals are more likely to be grouped in good credit risk if one has listed a real estate or car as an asset. On the other hand, people who do not own a real estate are more likely to default or fall in bad credit risk. One of the reason behind this could be that, people who own a piece of real estate property are more likely to avail credit facility at a lower interest, as it would fall under secured lending.
+
+<b> Other Plans with the bank </b>
+
+```{r}
+p31 <- ggplot(credit, aes(x = OtherPlans)) + geom_bar() + 
+  labs(title = 'Bar Chart of Other Plans with the bank') + 
+  theme(axis.text.x = element_text(angle = 90, hjust = 1))
+
+p32 <- ggplot(credit, aes(x = OtherPlans, fill = CreditRisk)) + 
+  geom_bar() + facet_grid(CreditRisk~.) +
+  labs(title = '') +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1))
+
+plot_grid(p31, p32, ncol = 2)
+```
+
+Individuals who do not have any other commitments towards other bank, stores or other facility would have more appetite for credit facility, as their undistributed income would be higher.
+
+<b> Housing </b>
+
+```{r}
+p33 <- ggplot(credit, aes(x = Housing)) + geom_bar() + 
+  labs(title = 'Bar Chart of Housing status') + 
+  theme(axis.text.x = element_text(angle = 90, hjust = 1))
+
+p34 <- ggplot(credit, aes(x = Housing, fill = CreditRisk)) + 
+  geom_bar() + facet_grid(CreditRisk~.) +
+  labs(title = '') +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1))
+
+plot_grid(p33, p34, ncol = 2)
+```
+
+Most individuals own a house. Possibility to falling into bad credit risk group increases when living arrangement status is rent. People living for free do not have any form of commitment in terms of living expense and hence possibility of falling into bad credit risk is minimal.
+
+<b> Job Type </b>
+
+```{r}
+p35 <- ggplot(credit, aes(x = JobType)) + geom_bar() + 
+  labs(title = 'Bar Chart of Job Type') + 
+  theme(axis.text.x = element_text(angle = 90, hjust = 1))
+
+p36 <- ggplot(credit, aes(x = JobType, fill = CreditRisk)) + 
+  geom_bar() + facet_grid(CreditRisk~.) +
+  labs(title = '') +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1))
+
+plot_grid(p35, p36, ncol = 2)
+```
+
+If unemployed, possibility of getting credit facility remains minimal. Skilled job type individual availed the maximum credit risk facility. Possibility of an unskilled job type to fall into bad credit risk is proportionality higher. 
+
+<b> Phone </b>
+
+```{r}
+p37 <- ggplot(credit, aes(x = Phone)) + geom_bar() + 
+  labs(title = 'Bar Chart of Phone') + 
+  theme(axis.text.x = element_text(angle = 90, hjust = 1))
+
+p38 <- ggplot(credit, aes(x = Phone, fill = CreditRisk)) + 
+  geom_bar() + facet_grid(CreditRisk~.) +
+  labs(title = '') +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1))
+
+plot_grid(p37, p38, ncol = 2)
+```
+
+Most individuals do not have a phone connection. However, this factor did not play a significant role in availing credit faculty.
+
+<b> Foreign Worker </b>
+
+```{r}
+p39 <- ggplot(credit, aes(x = Foreign)) + geom_bar() + 
+  labs(title = 'Bar Chart of Foreign Worker') + 
+  theme(axis.text.x = element_text(angle = 90, hjust = 1))
+
+p40 <- ggplot(credit, aes(x = Foreign, fill = CreditRisk)) + 
+  geom_bar() + facet_grid(CreditRisk~.) +
+  labs(title = '') +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1))
+
+plot_grid(p39, p40, ncol = 2)
+```
+
+Nationality played a significant role in availing credit facility. Most individuals who availed credit facility where foreigners.
+
+<h4> Multivariate Visualisation </h4>
+
+<b> Job Type, Sex and Asset </b>
+The following visual shows that most of the females had bad risk, and males had good risk. Unemplyed females however had good risk, whereas unemplyed males had bad risk. Most of the females had life insurance as an asset wheras males had real estate. The credit risk based on job type differed a lot between males and females. Particular aspects favoured females whereas others favoured males.
+
+```{r, echo = FALSE, fig.height=8}
+ggplot(credit, aes(x = JobType, fill = CreditRisk)) + 
+  geom_bar(position = 'fill') + facet_grid( Status1 ~ Asset ) + 
+  theme(axis.text.x = element_text(angle = 90, hjust = 1)) +
+  labs(title = 'Proportional Bar Chart: Job Type, Sex and Asset')
+```
+
+
+<b> Age, Sex and Employment Years  </b>
+The following visualisation shows that the highest concentration of males varied from 20 to 55, wheras for females it varied between 20 and 45. There were also more males who were emplyed for more than 1 years. A lot of males had been employed for more than 7 years, as compared to females. Most of the females had less than 4 years of employment.
+
+```{r, echo = FALSE, fig.height=8}
+ggplot(credit, aes(x = Age, fill = CreditRisk)) + 
+  geom_histogram(bins = 30) +
+  facet_grid(Status1~Employment) + 
+  labs(title = 'Disrtribution of Age, Sex and Employment Years')
+```
+
+<b> Housing, Residence and Purpose </b>
+The following visualisation shows that most of the individuals had their own housing, out of which maximum had good credit. Lots of individuals who were staying for free for 4 years had bad credit risk. Credit for household expenses was the most sought after credit scheme for individuals with their own house, wheras people who lived for free had credit for cars. People on rent had similar numbers in credit for purpose of both cars and household.
+
+```{r, echo = FALSE, fig.height=8}
+ggplot(credit, aes(x = Purpose1, fill = CreditRisk)) + 
+  geom_bar(position = 'dodge') + facet_grid( Housing~ Residence ) + 
+  theme(axis.text.x = element_text(angle = 90, hjust = 1)) +
+  labs(title = 'Bar Chart: Housing, Residence and Purpose')
+```
+
+<b> Credit History, Sex and Number of dependants </b>
+From the visualisation, we can see that most of the females had only 1 dependant, whereas males had slightly more in proportion. Males with 1 or 2 dependant mainly either had existing paid credit or critical credit.
+```{r}
+ggplot(credit, aes(x = CreditHistory, fill = CreditRisk)) + 
+  geom_bar(position = 'dodge') + facet_grid( Status1~ Dependants ) + 
+  theme(axis.text.x = element_text(angle = 90, hjust = 1)) +
+  labs(title = 'Bar Chart: Credit History, Sex and Number of dependants', x = "Credit History", fill = "Credit Risk")
+```
+
+<h3> Summary </h3>
+From the data exploration phase, we found that the numerical features were quite tidy, and hence no cleaning needed to be undertaken. In case of the categorical variables, we had to define some new features which binned their corresponding original features into lower cardinalities. We did not remove any of the original variables in the dataset, as we would like to play around with granularity at the model building phase. 
+
+From the above exploration and visualisation in the Data Exploration step, we found that Status1 (Gender), Purpose1 (Purpose of credit), Housing (Current Accomodation type), Age, Employment (In years), JobType and Asset (eg. property, insurance) can possiblly be useful predictors for the CreditRisk class.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
