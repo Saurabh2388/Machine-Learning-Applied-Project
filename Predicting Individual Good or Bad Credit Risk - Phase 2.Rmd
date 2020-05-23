@@ -1,0 +1,338 @@
+---
+title: "Predicting Individual Good or Bad Credit Risk"
+subtitle: 'Machine Learning - Applied Project - Phase 2'
+author: "Saurabh Mallik (s3623575) & Dilip Chandra (s3574580)"
+output:
+  html_document: default
+  pdf_document: default
+---
+
+
+
+<h3> Introduction </h3>
+The purpose of the project is to build classifiers which will help in predicting whether or not an individual has good or bad credit risk from German Credit Dataset, which was sourced from [UCI Machine Learning Repository](https://archive.ics.uci.edu/ml/datasets/statlog+(german+credit+data)). 
+The project is segregated into two distinct stages. 
+In stage one we created classifiers that helped the machine learning process to provide prediction. Stage one comprised of data pre-processing, exploration and visualisation. In stage two, we focus on model building, model fitting and evaluations of binary-classifiers.
+
+The report is further divided into the following parts:</br>
+1. Methodology: explains what types of models were used and what parameters were set for machine learning algorithms.
+2. Classifiers: Here we further discuss the detailed performance of each classifier for followed by discussion about fine-tuning process for the classifiers used.
+3. Evaluation: Evaluate machine learning algorithms used prediction by use of resampling method and compare the results of the classifiers
+4. Summary: We summarise the report and comment on the fit of each model. 
+
+
+</br>
+<h3> Methodology </h3>
+We use the classification approach for data modelling in this report. Classification approach uses supervised learning methods which develops the computer to learn from the data set followed by using this learning to classify new projections. We have considered three classifiers for this report - K Nearest Neighbour, Random Forest and Naive Bayes. Naive Bayes has been considered as the baseline classifier. For fine-tuning process, predication thresholds were adjusted by training each classifier to make probability predictions. Next, we split the data into training & testing data. This is done to apply different models on the training data and later test the accuracy of the predictions using the testing data. Test size of 0.7 refers to an 70-30 split of the original data into training & testing data respectively. Each set resembled the full data by having the same proportion of target classes. To refine the performance and to smoothen any imbalance class of the target feature, we perform a five-folded cross-validation stratified sampling on each classifier. To test the accuracy of each of the classifier on the test set and report the performance we rely on Confusion Matrix, mmce, Average classification accuracy rate.
+
+</br>
+<h3> Hyperparameter Tune-Fining </h3>
+</br>
+
+<h4> Naive-Bayes</h4>
+Naive Bayes can often outperform more sophisticated classification methods. This classifier uses technique base in Bayesian theorem which is highly suitable when the dimensionality of the inputs is high. We have used Laplacian smoothing parameter to mitigate any zero probabilities as predictions. We used values that ranged from 0 to 30. The value of Laplacian parameter was 3.741 with a mean test error of 0.243 for Jobtype and 0.2453 for Age.
+
+</br>
+<h4>Random Forest</h4>
+Random forest classifier is used to creates a set of decision trees from randomly selected sample data set from the actual data set. A single decision tree may be prone to noise, but aggregate of many decision trees would reduce the noise effect. It then aggregates the votes from different decision trees to decide the final class of the test object. This report we have considered ‘mtry = sqrt(p)' where P refers to the number of descriptive features. For our project, p = 22, hence root of p is 4.69 Therefore, we experimented mtry = 3, 4, and 5. Number of trees to grow remains at the default value. The result was 4 with a mean test error of 0.263 for Jobtype and 0.28 for Age.
+
+</br>
+<h4>K-Nearest Neighbour</h4>
+K Nearest Neighbour algorithm uses label points in the data set and these labelled points are used to learn how to label other data points. In simple words, to label a new point, if the new point is similar to its neighbour, then is labelled the same. We consider the K factor to tune hyper parameters and the optimal thresholds to confirm is the number of neighbours that are similar which can range from 2 to 20 hypnotically. The outcome was 20 with a mean test error of 0.263 for Jobtype and 0.26 for age.
+
+</br>
+<h3>Threshold adjustment using JobType as descriptive variable </h3>
+
+```{r}
+library(readr)
+library(ggplot2)
+library(dplyr)
+library(mlr)
+library(tidyverse)
+library(GGally)
+library(cowplot)
+```
+
+Importing dataset.
+```{r, inclue = TRUE}
+credit <- read_csv("credit.csv")
+names(credit) <- c('Checking', 'Duration', 'CreditHistory', 'Purpose', 'CreditAmount',
+                    'Saving', 'Employment', 'Installment', 'Status', 'OtherParties', 'Residence',
+                    'Asset', 'Age', 'OtherPlans', 'Housing', 'ExistingCredits', 'JobType', 'Dependants', 
+                   'Phone', 'Foreign', 'CreditRisk')
+credit[, sapply(credit, is.character )] <- sapply( credit[, sapply(credit, is.character )], trimws)
+
+credit <- credit %>% 
+         mutate(Purpose1 = ifelse( Purpose %in% c('domestic appliance', 'furniture/equipment', 'radio/tv', 'repairs',                                     'retraining'), 'Household', 
+                                   ifelse( Purpose %in% c('new car', 'used car'), 'Cars',
+                                           ifelse( grepl('business', Purpose), 'Business',
+                                                   ifelse( grepl('education', Purpose), 'Education',
+                                                           ifelse( grepl('other', Purpose), 'Other', Purpose))))),
+                Status1 = ifelse( Status != 'female div/dep/mar', 'Male', 'Female')
+          )
+credit[, sapply( credit, is.character )] <- lapply( credit[, sapply( credit, is.character )], factor)
+```
+
+Setting the training and test data.
+```{r}
+set.seed(1234)
+training_index <- sample(nrow(credit)*0.70)
+test_index     <- setdiff(seq(1:nrow(credit)), training_index )
+```
+
+```{r}
+training_data  <- credit[training_index, ]
+test_data      <- credit[test_index, ]
+```
+
+```{r}
+task <- makeClassifTask(data = training_data, target = 'CreditRisk', id = 'JobType')
+```
+Configuring learners with probability type for Naive Bayes, Random Forest and KKNN.
+```{r}
+learner1 <- makeLearner('classif.naiveBayes', predict.type = 'prob')    
+learner2 <- makeLearner('classif.randomForest', predict.type = 'prob')
+learner3 <- makeLearner('classif.kknn', predict.type = 'prob')
+```
+For naiveBayes, we fine-tune Laplacian
+```{r}
+ps1 <- makeParamSet(
+  makeNumericParam('laplace', lower = 0, upper = 30)
+)
+```
+For randomForest, we can fine-tune mtry i.e mumber of variables randomly sampled as candidates at each split. Following
+Breiman, L. (2001), Random Forests, Machine Learning 45(1), 5-32, we can try mtry = 3, 4, 5 as mtry = sqrt(p) where p = 13
+```{r}
+ps2 <- makeParamSet(
+  makeDiscreteParam('mtry', values = c(3,4,5))
+)
+```
+For kknn, we can fine-tune k = 2 to 20 
+```{r}
+ps3 <- makeParamSet(
+  makeDiscreteParam('k', values = seq(2, 20, by = 1))
+)
+```
+Next, we configure tuning control search and a 5-CV version of stratified sampling
+```{r}
+
+ctrl  <- makeTuneControlGrid()
+rdesc <- makeResampleDesc("CV", iters = 5L, stratify = TRUE)
+
+
+tunedLearner1 <- makeTuneWrapper(learner1, rdesc, mmce, ps1, ctrl)
+tunedLearner2 <- makeTuneWrapper(learner2, rdesc, mmce, ps2, ctrl)
+tunedLearner3 <- makeTuneWrapper(learner3, rdesc, mmce, ps3, ctrl)
+
+
+tunedMod1  <- train(tunedLearner1, task)
+tunedMod2  <- train(tunedLearner2, task)
+tunedMod3  <- train(tunedLearner3, task)
+
+
+tunedPred1 <- predict(tunedMod1, task)
+tunedPred2 <- predict(tunedMod2, task)
+tunedPred3 <- predict(tunedMod3, task)
+
+
+d1 <- generateThreshVsPerfData(tunedPred1, measures = list(mmce))
+d2 <- generateThreshVsPerfData(tunedPred2, measures = list(mmce))
+d3 <- generateThreshVsPerfData(tunedPred3, measures = list(mmce))
+```
+
+```{r}
+mlr::plotThreshVsPerf(d1) + ggplot2::labs(title = 'Threshold Adjustment for Naive Bayes', x = 'Threshold')
+mlr::plotThreshVsPerf(d2) + ggplot2::labs(title = 'Threshold Adjustment for Random Forest', x = 'Threshold')
+mlr::plotThreshVsPerf(d3) + ggplot2::labs(title = 'Threshold Adjustment for 20-KNN', x = 'Threshold')
+```
+The following plots depict the value of mmce vs. the range of probability thresholds. The thresholds were approximately 0.55, 0.65, and 0.35 for NB, RF, and 20-KNN classifiers respectively. These thresholds were used to determine the probability of an individual defaulting or not.
+
+</br>
+<h3> Evaluation of classifiers </h3>
+```{r}
+
+threshold1 <- d1$data$threshold[ which.min(d1$data$mmce) ]
+threshold2 <- d2$data$threshold[ which.min(d2$data$mmce) ]
+threshold3 <- d3$data$threshold[ which.min(d3$data$mmce) ]
+
+
+testPred1 <- predict(tunedMod1, newdata = test_data)
+testPred2 <- predict(tunedMod2, newdata = test_data)
+testPred3 <- predict(tunedMod3, newdata = test_data)
+
+testPred1 <- setThreshold(testPred1, threshold1 )
+testPred2 <- setThreshold(testPred2, threshold2 )
+testPred3 <- setThreshold(testPred3, threshold3 )
+```
+By making use of the obtained parameters and threshold levels,  we calculated the confusion matrix for each classifier. 
+
+The confusion matrix of Naive Bayes classifer is as follow:
+```{r}
+calculateConfusionMatrix( testPred1,relative = TRUE)
+```
+Classification accuracy for Naive Bayes is 75.66%, which shows a good performance.
+
+The confusion matrix of Random Forest classifer is as follows
+```{r}
+calculateConfusionMatrix( testPred2,relative = TRUE)
+```
+Classification accuracy for Random Forest is 73.66%, which shows a good performance.
+
+The confusion matrix of 20-KNN classifer is as follows
+```{r}
+calculateConfusionMatrix( testPred3,relative = TRUE)
+```
+Classification accuracy for 20-kNN is 76.33%, which shows a good performance.
+
+All classifiers accurately predicted individual having good credit risk, but not bad credit risk. The class accuracy difference was substantial. Based on class accuracy and mmce, we concluded that the 20-KNN classifer was the best model using id = JobType.
+
+
+</br>
+<h3>Threshold adjustment using Age as descriptive variable </h3>
+
+```{r}
+task2 <- makeClassifTask(data = training_data, target = 'CreditRisk', id = 'Age')
+```
+Configuring learners with probability type for Naive Bayes, Random Forest and KKNN.
+```{r}
+learner4 <- makeLearner('classif.naiveBayes', predict.type = 'prob')    
+learner5 <- makeLearner('classif.randomForest', predict.type = 'prob')
+learner6 <- makeLearner('classif.kknn', predict.type = 'prob')
+```
+
+For naiveBayes, we fine-tune Laplacian
+```{r}
+ps4 <- makeParamSet(
+  makeNumericParam('laplace', lower = 0, upper = 30)
+)
+```
+
+For randomForest, we can fine-tune mtry i.e mumber of variables randomly sampled as candidates at each split. Following
+Breiman, L. (2001), Random Forests, Machine Learning 45(1), 5-32, we can try mtry = 3, 4, 5 as mtry = sqrt(p) where p = 13
+```{r}
+ps5 <- makeParamSet(
+  makeDiscreteParam('mtry', values = c(3,4,5))
+)
+```
+For kknn, we can fine-tune k = 2 to 20 
+```{r}
+ps6 <- makeParamSet(
+  makeDiscreteParam('k', values = seq(2, 20, by = 1))
+)
+```
+Next, we configure tuning control search and a 5-CV version of stratified sampling
+```{r}
+ctrl2  <- makeTuneControlGrid()
+rdesc2 <- makeResampleDesc("CV", iters = 5L, stratify = TRUE)
+
+
+tunedLearner4 <- makeTuneWrapper(learner4, rdesc2, mmce, ps4, ctrl2)
+tunedLearner5 <- makeTuneWrapper(learner5, rdesc2, mmce, ps5, ctrl2)
+tunedLearner6 <- makeTuneWrapper(learner6, rdesc2, mmce, ps6, ctrl2)
+
+
+tunedMod4  <- train(tunedLearner4, task2)
+tunedMod5  <- train(tunedLearner5, task2)
+tunedMod6  <- train(tunedLearner6, task2)
+
+
+tunedPred4 <- predict(tunedMod4, task2)
+tunedPred5 <- predict(tunedMod5, task2)
+tunedPred6 <- predict(tunedMod6, task2)
+
+
+d4 <- generateThreshVsPerfData(tunedPred4, measures = list(mmce))
+d5 <- generateThreshVsPerfData(tunedPred5, measures = list(mmce))
+d6 <- generateThreshVsPerfData(tunedPred6, measures = list(mmce))
+```
+
+
+```{r}
+mlr::plotThreshVsPerf(d4) + ggplot2::labs(title = 'Threshold Adjustment for Naive Bayes', x = 'Threshold')
+mlr::plotThreshVsPerf(d5) + ggplot2::labs(title = 'Threshold Adjustment for Random Forest', x = 'Threshold')
+mlr::plotThreshVsPerf(d6) + ggplot2::labs(title = 'Threshold Adjustment for 20-KNN', x = 'Threshold')
+```
+The following plots depict the value of mmce vs. the range of probability thresholds. The thresholds were approximately 0.50, 0.62, and 0.3 for NB, RF, and 20-KNN classifiers respectively. These thresholds were used to determine the probability of an individual defaulting or not.
+
+</br>
+<h3> Evaluation of classifiers </h3>
+```{r}
+
+threshold4 <- d4$data$threshold[ which.min(d4$data$mmce) ]
+threshold5 <- d5$data$threshold[ which.min(d5$data$mmce) ]
+threshold6 <- d6$data$threshold[ which.min(d6$data$mmce) ]
+
+testPred4 <- predict(tunedMod4, newdata = test_data)
+testPred5 <- predict(tunedMod5, newdata = test_data)
+testPred6 <- predict(tunedMod6, newdata = test_data)
+
+testPred4 <- setThreshold(testPred4, threshold4 )
+testPred5 <- setThreshold(testPred5, threshold5 )
+testPred6 <- setThreshold(testPred6, threshold6 )
+```
+
+By making use of the obtained parameters and threshold levels,  we calculated the confusion matrix for each classifier. 
+
+The confusion matrix of Naive Bayes classifer is as follow:
+
+```{r}
+calculateConfusionMatrix( testPred4,relative = TRUE)
+```
+
+Classification accuracy for Naive Bayes is 75.66%, which shows a good performance.
+
+
+The confusion matrix of Random Forest classifer is as follows
+
+```{r}
+calculateConfusionMatrix( testPred5,relative = TRUE)
+```
+Classification accuracy for Random Forest is 73.33%, which shows a good performance.
+
+The confusion matrix of 20-KNN classifer is as follows
+```{r}
+calculateConfusionMatrix( testPred6,relative = TRUE)
+```
+Classification accuracy for 20-kNN is 74%, which shows a good performance.
+
+All classifiers accurately predicted individual having good credit risk, but not bad credit risk. The class accuracy difference was substantial. Based on class accuracy and mmce, we concluded that the Naive Bayes classifer was the best model using id = Age.
+
+</br>
+<h3>Discussion </h3>
+The above section shows that all three of our classifiers performed accurately for good credit risk, however they performed poorly for bad credit risk despite of stratified sampling. This implies the prevalence of imbalance class problem. In order to get more effective results, a good approach could be a cost-sensitive classification where we could have allocated more cost to true positive groups i.e. the correctly predicted bad credit risk class. Another alternative would be under- or oversampling to adjust the class balance, despite the risk of inducing biases. 
+
+The Naive Bayes model goes with the assumption that the descriptive features to follow normality, which is not necessarily true. The solution could be a transformation on numeric features. 
+
+Based mmce, the Random Forest classifer underperformed the KNN and Naive Bayes classifier. This highlights the Random Forest classifier might not be appropriate given there were many binary features in the data. The Naive Bayes outperformed other models. 
+
+</br><h3> Conclusion</h3>
+
+Among the three classifiers: 
+ - for JobType as ID - the 20-KNN 
+ - and for Age as ID - the Naive Bayes 
+produced the best performance in predicting individuals having good credit risk. 
+
+We split the data into training and test sets. Via a stratified sampling, we determined the optimal value of the selected hyperparameter of each classifier and the probability threshold. Despite this, the imbalance class issue still persisted and therefore reduced the class accuracy of the bad credit risk. 
+
+For future work, we proposed to consider cost-sensitive classification and under/over-sampling methods to mitigate the class imbalance.
+
+
+</br><h3> References</h3>
+"Fundamentals of Machine Learning for Predictive Data Analytics: Algorithms, Worked Examples, and Case Studies", John D. Kelleher, Brian Mac Namee, and Aoife D'Arcy, 1st Edition, MIT Press, 2015.
+"Predictive Analytics", Eric Siegel, Wiley, 2016.
+"R Cookbook: Proven Recipes for Data Analysis, Statistics, and Graphics", Paul Teetor, 1st Edition, O'reilly Cookbooks, 2011.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
